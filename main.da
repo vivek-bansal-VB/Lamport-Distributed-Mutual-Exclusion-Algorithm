@@ -1,0 +1,434 @@
+import sys
+import heapq
+import random
+import signal
+import os
+import csv
+import timeit
+config(channel is fifo, clock is lamport)
+
+class MonitorProcess(process):
+    def setup(processes:set, algo:int, turn:int, proc:int, req:int, check:int):  # processes is set of all other processes
+        self.q = set()
+        self.monitorheap = []
+        self.turn = turn
+        self.proc = proc
+        self.req = req
+        self.liveliness = True
+        self.safety = True
+        self.check = check
+
+    def receive(msg= ('criticalenter',stats, p)):
+        -- stats
+        tag = 'criticalenter'
+        clock = stats
+        pid = p
+        heapq.heappush(monitorheap, (clock, tag, pid))
+        #output(clock)
+        #output('critical receive')
+        #output(pid)
+
+    def receive(msg= ('resourcerelease',stats, p)):
+        --stats
+        tag = 'resourcerelease'
+        clock = stats
+        pid = p
+        heapq.heappush(monitorheap, (clock, tag, pid))
+        #output(clock)
+        #output('critical left')
+        #output(pid)
+
+    # two consecutive orders of popping from queue must be CSEnter -> Release by the same process with CSEnter occuring first to check for safety.
+    def checkSafety():
+        --safetycheck
+        if len(monitorheap) & 1:
+            return False
+        output ('******************************************************************************')
+        while len(monitorheap) > 0:
+            clock1, tag1, pid1 = heapq.heappop(monitorheap)
+            clock2, tag2, pid2 = heapq.heappop(monitorheap)
+            output("Process " + str(pid1) + 'enters critical section at time ' + str(clock1))
+            output("Process " + str(pid2) + 'leaving critical section at time ' + str(clock2))
+            if tag1 == 'criticalenter' and tag2 == 'resourcerelease' and pid1 == pid2 and clock1 < clock2:
+                continue
+            else:
+                break
+        output ('******************************************************************************')
+        if len(monitorheap) == 0:
+            return True
+        else:
+            return False
+
+    def deadlockhandler(signum, frame):
+        output('deadlock occured')
+        liveliness = False
+        #os.kill(os.getppid(), signal.SIGKILL)
+
+    # Deadlock detection. If monitor process is waiting for more than 20 seconds that means system is idle and deadlock has occured.
+    def wait():
+        signal.signal(signal.SIGALRM, deadlockhandler)
+        signal.alarm(20)
+        # waiting to receive stats message from all the other proceesses
+        await(each(p in processes, has=some(received(('finish',_, _p)))))
+        signal.alarm(0)
+
+    def run():
+        wait()
+        if checkSafety():
+            output('The system follows safety')
+            safety = True
+        else:
+            safety = False
+            output('The system violates safety')
+
+        if check == 1:
+            if algo == 0:
+                testfile = 'Correctness_MyLamport.csv'
+            if algo == 1:
+                testfile = 'Correctness_OldLamport.csv'
+            if algo == 2:
+                testfile = 'Correctness_SpecLamport.csv'
+
+            with open(testfile, mode='a') as test_file:
+                test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                test_writer.writerow([str(turn), str(proc), str(req), str(safety), str(liveliness)])
+    
+class MyLamport(process):
+    def setup(s:set, nrequests:int, monitorproc:MonitorProcess):  # s is set of all other processes
+        self.q = set()
+        self.requests_fulfilled = 0
+        self.monitorproc = monitorproc
+
+    def sendRequest():
+        -- request
+
+        c = logical_clock()
+        #output ('in send request at', c)
+        send(('request', c, self), to= s)
+        q.add(('request', c, self))
+
+    def criticalSection():
+        #output ('inside critical')
+        -- criticalSection
+        min_value = sys.maxsize
+        for (tag, c, p) in q:
+            if tag == 'request' and p == self:
+                if c < min_value:
+                    min_value = c
+        c = min_value
+
+        if(each(('request', c2, p) in q, has= (c2, p)==(c, self) or (c, self) < (c2, p))):
+                if(each(p in s, has= some(received(('ack', c3, _p)), has= c3 > c))):
+                    #output('in cs')
+                    requests_fulfilled = requests_fulfilled + 1;
+                    send(('criticalenter', logical_clock(), str(self)), to= monitorproc)
+                    #output ('inside critical true')
+                    return True
+                else:
+                    return False
+
+    def releaseRequest():
+        -- release
+        min_value = sys.maxsize
+        for (tag, c, p) in q:
+            if tag == 'request' and p == self:
+                if c < min_value:
+                    min_value = c
+        c = min_value
+
+        #output ('release request')
+        q.remove(('request', c, self))
+        send(('release', logical_clock(), self), to= s)
+        send(('resourcerelease', logical_clock(), str(self)), to= monitorproc)
+
+    def receive(msg= ('request', c2, p)):
+        q.add(('request', c2, p))
+        send(('ack', logical_clock(), self), to= p)
+        #output("Received : request from ", p, "at ", logical_clock())
+
+    def receive(msg= ('release', _, p)):
+        #for x in setof(('request', c, p), ('request', c, _p) in q):
+            #q.remove(x)
+            #break
+        
+         min_value = sys.maxsize
+         req = None
+         for (tag, c, p2) in q:
+             if tag == 'request' and p2 == p:
+                if c <  min_value:
+                    req = (tag, c, p2)
+                    min_value = c
+         if req != None:
+            q.remove(req);
+        
+    def run():
+        requests_generated = 0
+        while requests_fulfilled != nrequests:
+            if requests_generated < nrequests:
+                sendRequest()
+                requests_generated = requests_generated + 1
+            if criticalSection() == True:
+                releaseRequest()
+
+        send(('done', self), to= parent())
+        await(received(('done',), from_=parent()))
+        #output('terminating')
+        send(('finish', logical_clock(), self), to= monitorproc)
+
+
+class OrigLamport(process):
+    def setup(s:set, nrequests:int, monitorproc:MonitorProcess):  # s is set of all other processes
+        self.q = set()
+        self.monitorproc = monitorproc
+
+    def mutex(task):
+        -- request
+        c = logical_clock()
+        send(('request', c, self), to= s)
+        q.add(('request', c, self))
+        await(each(('request', c2, p) in q,
+                   has= (c2, p)==(c, self) or (c, self) < (c2, p)) and
+              each(p in s, has= some(received(('ack', c2, _p)), has= c2 > c)))
+        -- critical_section
+        send(('criticalenter', logical_clock(), str(self)), to= monitorproc)
+        task()
+        -- release
+        q.remove(('request', c, self))
+        send(('release', logical_clock(), self), to= s)
+        send(('resourcerelease', logical_clock(), str(self)), to= monitorproc)
+
+    def receive(msg= ('request', c2, p)):
+        q.add(('request', c2, p))
+        send(('ack', logical_clock(), self), to= p)
+
+    def receive(msg= ('release', _, p)):
+#        q.remove(('request', _, p))  # pattern matching needed for _
+#        q.remove(anyof(setof(('request', c, p), ('request', c, _p) in q)))
+        for x in setof(('request', c, p), ('request', c, _p) in q):
+            q.remove(x)
+            break
+#        for ('request', c, _p) in q: q.remove('request', c, p); break
+#        for (tag, c, p2) in q:
+#            if tag == 'request' and p2 == p:
+#                q.remove((tag, c, p2)); break
+
+    def run():
+        def task():
+            output('in cs')
+        for i in range(nrequests):
+            mutex(task)
+
+        send(('done', self), to= parent())
+        await(received(('done',), from_=parent()))
+        #output('terminating')
+        send(('finish', logical_clock(), self), to= monitorproc)
+
+
+class SpecLamport(process):
+    def setup(s:set, nrequests:int, monitorproc:MonitorProcess):   # s is set of all other processes
+        self.monitorproc = monitorproc
+
+    def mutex(task):
+        -- request
+        c = logical_clock()
+        send(('request', c, self), to= s)
+        await(each(received(('request', c2, p)),
+                   has= received(('release', c2, p)) or (c, self) < (c2, p))
+              and each(p in s, has= received(('ack', c, p))))
+        -- critical_section
+        send(('criticalenter', logical_clock(), str(self)), to= monitorproc)
+        task()
+        -- release
+        send(('release', c, self), to= s)
+        send(('resourcerelease', logical_clock(), str(self)), to= monitorproc)
+
+    def receive(msg= ('request', c, p)):
+        send(('ack', c, self), to= p)
+
+    def run():
+        def task():
+            #output('in cs')
+            #output('releasing cs')
+            for i in range(nrequests):
+                mutex(task)
+
+        send(('done', self), to= s)
+        await(each(p in s, has= received(('done', p))))
+        #output('terminating')
+        send(('finish', logical_clock(), self), to= monitorproc)
+
+
+def getAlgoClass(j:int):
+    if j == 0:
+        myclass = MyLamport
+    if j == 1:
+        myclass = OrigLamport
+    if j == 2:
+        myclass = SpecLamport
+    return myclass
+
+#writing headers to the generated CSV files
+def WriteMetaDataToFile(j:int, i:int):
+    if j == 0:
+        with open('Correctness_MyLamport.csv', mode='w') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', 'MyLamport', ' ', ' '])
+            test_writer.writerow(['Serial Number', 'Number of Processes', 'Number of Requests', 'Safety', 'Liveliness']) 
+    if j == 1:
+        with open('Correctness_OldLamport.csv', mode='w') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', 'OldLamport', ' ', ' '])
+            test_writer.writerow(['Serial Number', 'Number of Processes', 'Number of Requests', 'Safety', 'Liveliness']) 
+    if j == 2:
+        with open('Correctness_SpecLamport.csv', mode='w') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', 'SpecLamport', ' ', ' '])
+            test_writer.writerow(['Serial Number', 'Number of Processes', 'Number of Requests', 'Safety', 'Liveliness']) 
+
+    if j == 3 and i == 0:
+        with open('Performance_VaryingRequests.csv', mode='w') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', ' ', ' '])
+            test_writer.writerow([' ', 'Performance of MyLamport', ' ', ' '])
+            test_writer.writerow(['Processes', 'Requests', 'Average Time (in seconds)', 'Number of Runs'])
+    if j == 3 and i == 1:
+        with open('Performance_VaryingRequests.csv', mode='a') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', ' ', ' '])
+            test_writer.writerow([' ', 'Performance of Original Lamport', ' ', ' '])
+            test_writer.writerow(['Processes', 'Requests', 'Average Time (in seconds)', 'Number of Runs'])
+    if j == 3 and i == 2:
+        with open('Performance_VaryingRequests.csv', mode='a') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', ' ', ' '])
+            test_writer.writerow([' ', 'Performance of Special Lamport', ' ', ' '])
+            test_writer.writerow(['Processes', 'Requests', 'Average Time (in seconds)', 'Number of Runs'])
+    if j == 4 and i == 0:
+        with open('Performance_VaryingProcesses.csv', mode='w') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', ' ', ' '])
+            test_writer.writerow([' ', 'Performance of MyLamport', ' ', ' '])
+            test_writer.writerow(['Requests', 'Processes', 'Average Time (in seconds)', 'Number of Runs'])
+    if j == 4 and i == 1:
+        with open('Performance_VaryingProcesses.csv', mode='a') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', ' ', ' '])
+            test_writer.writerow([' ', 'Performance of Original Lamport', ' ', ' '])
+            test_writer.writerow(['Requests', 'Processes', 'Average Time (in seconds)', 'Number of Runs'])
+    if j == 4 and i == 2:
+        with open('Performance_VaryingProcesses.csv', mode='a') as test_file:
+            test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            test_writer.writerow([' ', ' ', ' ', ' '])
+            test_writer.writerow([' ', 'Performance of Special Lamport', ' ', ' '])
+            test_writer.writerow(['Requests', 'Processes', 'Average Time (in seconds)', 'Number of Runs'])
+
+
+# writing same processes and varying requests file 
+def WritePerfData(nprocs:int, req:int, time:float, runs:int):
+    with open('Performance_VaryingRequests.csv', mode='a') as test_file:
+        test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        test_writer.writerow([str(nprocs), str(req), str(time), str(runs)])
+
+# writing same requests and varying processes file
+def WritePerfData1(req:int, nprocs:int, time:float, runs:int):
+    with open('Performance_VaryingProcesses.csv', mode='a') as test_file:
+        test_writer = csv.writer(test_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        test_writer.writerow([str(req), str(nprocs), str(time), str(runs)])
+
+     
+def main():
+    maxprocs = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    maxrequests = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+    num = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    d = int(sys.argv[4]) if len(sys.argv) > 4 else 1
+    a = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+
+    totalalgo = 3
+    write1 = 0
+    write2 = 0
+    write3 = 0
+
+    # correctness verification code 
+    for i in range(num):
+        nprocs = random.randint(1, maxprocs + 1)
+        nrequests = random.randint(1, maxrequests + 1)         
+    
+        for j in range(totalalgo):
+            myclass = getAlgoClass(j)                
+            if write1 == 0 and j == 0:
+                WriteMetaDataToFile(j, 0)
+                write1 = 1
+            elif write2 == 0 and j == 1:
+                WriteMetaDataToFile(j, 0)
+                write2 = 1
+            elif write3 == 0 and j == 2:
+                WriteMetaDataToFile(j, 0)
+                write3 = 1
+
+            monitorproc = new(MonitorProcess, numofprocess=1)
+            ps = new(myclass, num=nprocs)        
+            for p in ps: 
+                setup(p, (ps-{p}, nrequests, monitorproc))
+            start(ps)
+            setup(monitorproc,(ps, j, i + 1, nprocs, nrequests, 1))
+            start(monitorproc) 
+            if myclass != SpecLamport:       
+                await(each(p in ps, has=received(('done', p))))
+                send(('done',), to=ps)
+
+    # performance measurement code for varying requests and same process 
+    for j in range(totalalgo):
+        myclass = getAlgoClass(j)
+        WriteMetaDataToFile(3, j)
+        nprocs = maxprocs
+        nrequests = int (maxrequests / d)
+        initialreq = int (maxrequests / d)
+
+        while nrequests <= maxrequests:
+            total = 0
+            for i in range(a):
+                start_time = timeit.default_timer()
+                monitorproc = new(MonitorProcess, numofprocess=1)
+                ps = new(myclass, num=nprocs)        
+                for p in ps: 
+                    setup(p, (ps-{p}, nrequests, monitorproc))
+                start(ps)
+                setup(monitorproc,(ps, j, i + 1, nprocs, nrequests, 2))
+                start(monitorproc) 
+                if myclass != SpecLamport:       
+                    await(each(p in ps, has=received(('done', p))))
+                    send(('done',), to=ps)
+                
+                elapsed = timeit.default_timer() - start_time
+                total += elapsed
+            WritePerfData(maxprocs, nrequests, total / a, a)    
+            nrequests = nrequests + initialreq
+
+    # performance measurement code for same requests and varying processes 
+    for j in range(totalalgo):
+        myclass = getAlgoClass(j)
+        WriteMetaDataToFile(4, j)
+        nrequests = maxrequests
+        nprocs = int (maxprocs / d)
+        initialproc = int (maxprocs / d)
+
+        while nprocs <= maxprocs:
+            total = 0
+            for i in range(a):
+                start_time = timeit.default_timer()
+                monitorproc = new(MonitorProcess, numofprocess=1)
+                ps = new(myclass, num=nprocs)        
+                for p in ps: 
+                    setup(p, (ps-{p}, nrequests, monitorproc))
+                start(ps)
+                setup(monitorproc,(ps, j, i + 1, nprocs, nrequests, 2))
+                start(monitorproc) 
+                if myclass != SpecLamport:       
+                    await(each(p in ps, has=received(('done', p))))
+                    send(('done',), to=ps)
+                
+                elapsed = timeit.default_timer() - start_time
+                total += elapsed
+            
+            WritePerfData1(nrequests, nprocs, total / a, a)    
+            nprocs = nprocs + initialproc          

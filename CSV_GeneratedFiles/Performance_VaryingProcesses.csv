@@ -1,0 +1,15 @@
+ , , , 
+ ,Performance of MyLamport, , 
+Requests,Processes,Average Time (in seconds),Number of Runs
+8,2,0.17915620101121021,4
+8,4,0.8397888285035151,4
+ , , , 
+ ,Performance of Original Lamport, , 
+Requests,Processes,Average Time (in seconds),Number of Runs
+8,2,0.07092038024711655,4
+8,4,0.13413779874827014,4
+ , , , 
+ ,Performance of Special Lamport, , 
+Requests,Processes,Average Time (in seconds),Number of Runs
+8,2,0.05130573375208769,4
+8,4,0.08430264624621486,4

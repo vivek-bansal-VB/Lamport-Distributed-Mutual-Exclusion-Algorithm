@@ -1,0 +1,4 @@
+ , ,OldLamport, , 
+Serial Number,Number of Processes,Number of Requests,Safety,Liveliness
+1,2,6,True,True
+2,4,4,True,True

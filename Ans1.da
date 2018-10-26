@@ -1,0 +1,106 @@
+import sys
+config(channel is fifo, clock is lamport)
+
+class P(process):
+    def setup(s:set, nrequests:int):  # s is set of all other processes
+        self.q = set()
+        self.requests_fulfilled = 0
+
+    def sendRequest():
+        -- request
+
+        c = logical_clock()
+        output ('send request by' + str(self)  + 'at time ' +  str(c))
+        send(('request', c, self), to= s)
+        q.add(('request', c, self))
+
+    def criticalSection():
+        #output ('inside critical')
+        -- criticalSection
+        min_value = sys.maxsize
+        for (tag, c, p) in q:
+            if tag == 'request' and p == self:
+                if c < min_value:
+                    min_value = c
+        c = min_value
+
+        if(each(('request', c2, p) in q, has= (c2, p)==(c, self) or (c, self) < (c2, p))):
+                if(each(p in s, has= some(received(('ack', c3, _p)), has= c3 > c))):
+                    #output('in cs')
+                    requests_fulfilled = requests_fulfilled + 1;
+                    output (str(self) + ' inside critical section at time ' + str(logical_clock()))
+                    return True
+                else:
+                    return False
+
+    def releaseRequest():
+        -- release
+        min_value = sys.maxsize
+        for (tag, c, p) in q:
+            if tag == 'request' and p == self:
+                if c < min_value:
+                    min_value = c
+        c = min_value
+
+        #output ('release request')
+        q.remove(('request', c, self))
+        send(('release', logical_clock(), self), to= s)
+        output (str(self) + 'leaving critical section at time ' + str(logical_clock()))
+
+    def receive(msg= ('request', c2, p)):
+        q.add(('request', c2, p))
+        send(('ack', logical_clock(), self), to= p)
+        #output("Received : request from ", p, "at ", logical_clock())
+        output('send ack to ' + str(p) +' at ' + str(logical_clock()))
+
+    def receive(msg= ('release', _, p)):
+
+        # here deadlock will come as we are removing any request of process p
+        # rather we should remove the first request of p ( which is of the minimum timestamp)
+        # th below commented code will work and will not give deadlock
+        for x in setof(('request', c, p), ('request', c, _p) in q):
+            q.remove(x)
+            output(str(self) + ' removed ' + str(x))
+            break
+         #min_value = sys.maxsize
+         #req = None
+         #for (tag, c, p2) in q:
+         #   if tag == 'request' and p2 == p:
+          #      if c <  min_value:
+          #          req = (tag, c, p2)
+          #          min_value = c
+         #if req != None:
+           # q.remove(req);
+
+    def run():
+        requests_generated = 0
+        while requests_fulfilled != nrequests:
+            if requests_generated < nrequests:
+                sendRequest()
+                requests_generated = requests_generated + 1
+            if criticalSection() == True:
+                releaseRequest()
+
+        send(('done', self), to= parent())
+        await(received(('done',), from_=parent()))
+        output('terminating')
+
+def main():
+    nprocs = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    nrequests = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+
+    ps = new(P, num=nprocs)
+    for p in ps: setup(p, (ps-{p}, nrequests))
+    start(ps)
+    await(each(p in ps, has=received(('done', p))))
+    send(('done',), to=ps)
+
+# This is an executable specification of the algorithm described in
+# Lamport, L. (1978). "Time, clocks, and the ordering of events in a
+# distributed system".  Communications of the ACM, 21(7):558-565.
+
+# This code includes setup and termination for serving a given number of
+# requests per process.
+
+# All labels are not needed,
+# leaving 14 or 15 lines total for the algorithm body and message handlers.
