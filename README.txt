@@ -1,4 +1,5 @@
 # Lamport-Distributed-Mutual-Exclusion-Algorithm
+
 You are asked to (1) implement Lamport's distributed mutex exclusion algorithm exactly as he described it in his CACM 1978 time-clocks paper in (different from the programs given in class), (2) describe at least 2 precise ways that the algorithm does not satisfy the specified safety and liveness requirements, and (3) design and implement methods for testing correctness and comparing performance of implementations of 3 distributed mutual exclusion algorithms written in DistAlgo.
 
 For (1), you may reuse most of some example program in DistAlgo (lamutex/orig.da, under da/examples/), but make sure you follow the overall organization of the 5 rules exactly as described in the paper. Be careful. Don't be creative.
