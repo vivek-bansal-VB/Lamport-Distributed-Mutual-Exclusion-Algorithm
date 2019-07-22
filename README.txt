@@ -1,36 +1,36 @@
-Ans 1 : Ans1.da is the file which separates out original lamport mutex() method into 3 methods. 3 methods are :
-	i)   sendRequest()
-	ii)  criticalSection()
-	iii) releaseRequest()
+You are asked to (1) implement Lamport's distributed mutex exclusion algorithm exactly as he described it in his CACM 1978 time-clocks paper in (different from the programs given in class), (2) describe at least 2 precise ways that the algorithm does not satisfy the specified safety and liveness requirements, and (3) design and implement methods for testing correctness and comparing performance of implementations of 3 distributed mutual exclusion algorithms written in DistAlgo.
 
+For (1), you may reuse most of some example program in DistAlgo (lamutex/orig.da, under da/examples/), but make sure you follow the overall organization of the 5 rules exactly as described in the paper. Be careful. Don't be creative.
 
-The problem with this approach is that it can lead to deadlock as we are removing any of the request resource of a process(when a process got the release resource command) from the queue. Rather we should delete that request which has the minimum clock value since that request got the critical section and finished its execution. So the program which is free of deadlock is in file Ans1_withoutdeadlock.da which removes minimum value command from the queue.
+For (2), you may find two ways of violating safety, or liveness, or one of each. You need to describe each way precisely and why it violates safety or liveness. You may write an execution trace, draw a message sequence diagram, etc. Be concise. Be creative too if you like.
 
-Point To Note : On Mac, I am getting authenticationException error when number of processes reached above 10. So I generally tested my code on less than 10 processes. Also for some unknown reasons as well I am getting this authenticationException so its better to run the command again after getting this error.
+For (3), you are asked to test correctness and compare performance of implementations of 3 distributed mutual exclusion algorithms written in DistAlgo (your program from (1), lamutex/orig.da, and lamutex/spec.da, under da/examples/). The goal is to better understand these algorithms.
 
-Ans 2 : answer is in file ans2.pdf
+Your main task will be to design and implement methods for testing correctness and performance. Your implementation is expected to be in DistAlgo/Python.
 
-Ans 3 : Code is in file main.da. Here we are comparing correctness and performance for each of the algorithms :
+For correctness, your program needs to be able to do a large number of runs on different parameter values, record information about critical sessions, and check that each run is correct.
 
-	i)   MyLamport (class MyLamport)
-	ii)  OldLamport (class OldLamport)
-	iii) SpecLamport (class SpecLamport)
+For performance, your program needs to be able to do several different runs varying a particular parameter, with multiple repetitions of each run, and measure the running times, including elapsed time and total CPU time, and report statistics about them.
 
-For correctness, we are creating 3 files:
+You may implement everything yourself or use implementations by others so long as you understand them well. (Reminder: anything that is not your own creation must be given exact sources and credits; follow the requirements on the course syllabus.)
 
-	i)   (Correctness_MyLamport.csv)
-	ii)  (Correctness_OldLamport.csv)
-	iii) (Correctness_SpecLamport.csv)
+Your program:
 
-each of which contains (Iteration number, No of Processes, No of Requests, Safety, Liveliness) for each of the algorithm.
+Your program must run under Python 3.6.5 and DistAlgo 1.1.0b12 (can just do "pip install --pre pyDistAlgo" if you have pip installed, or download a file from http://distalgo.cs.stonybrook.edu/download, and follow README).
 
-To check Safety we checked whether 2 processes are at the critical section at the same time. If they are, that means safety is violated. If they are not, that means safety is preserved. Algorithm is explained in the code with the comments.
+Your main program must be named
+"main.da", and must run with a command like the following, where 
+"p" is for number of processes, 
+"r" is for total number of requests, 
+"n" is for number of runs for correctness testing, and 
+"d" and "a" are for number of parameter values and number of repetitions, respectively, for performance testing:
 
-To check Liveliness, we checked for the deadlock scenario using timeout. If the monitor process is waiting for more than 20 seconds to get a finish message from processes that means system is not progressing and deadlock has occurred.
+python.exe -m da main.da p r n d a
 
-To measure performance we are creating 2 files:
+and do the following two sets of tasks:
 
-	i)  Performance_VaryingProcesses.csv (when number of requests are fixed and processes are varying with them)
-	ii) Performance_VaryingRequests.csv (when number of processes are fixed and requests are varying with them)
+(1) for each of the different implementations, test correctness of "n" runs, with each run using randomly generated numbers of processes and requests, up to "p" processes and "r" requests.
 
-So we used the timeIt module of python to evaluate the execution time. When Processes are varying we run Lamport Algorithms over a fixed number of requests and compute the average times over number of runs. Similarly I did this for number of requests varying case. From my observation, I found out that MyLamport algorithm runs slowly than original and spec lamport algorithms due to interleaving of messages.
+(2) for each of the different implementations, compare performance of "d" different runs on "p" processes and up to "r" requests evenly spaced each process, and compare performance "d" different runs on up to "p" processes evenly spaced and "r" requests each process, with "a" repetitions for each run. For example, p = 10, r = 20, d = 5, a = 3 means: compare 5 runs on 10 processes and 4, 8, 12, 16, and 20 requests, respectively, each process, and compare 5 runs on 2, 4, 6, 8, and 10 processes, respectively, and 20 requests each process, where each run should be repeated 3 times.
+
+You have the freedom to decide what information to print about the tests and in what table format. They need to clearly show correctness information and performance comparison. In particular, they must include at least safety violations, if any, and running times averaged over repeated runs, in two tables---one for varying request numbers, and one for varying process numbers.
